@@ -1,53 +1,35 @@
 import streamlit as st
 import yfinance as yf
-import plotly.graph_objects as go
-import numpy as np
 import pandas as pd
+from prophet import Prophet
+from prophet.plot import plot_plotly
+import plotly.graph_objs as go
 
-st.title("🎲 몬테카를로 시뮬레이션으로 미래 주가 예측")
+st.title("📈 여러 종목 Prophet 미래 주가 예측")
 
-ticker = st.text_input("분석할 종목 티커 입력 (예: AAPL)", value="AAPL").upper()
+tickers_input = st.text_input("분석할 종목 티커 여러 개 입력 (쉼표로 구분)", "AAPL,MSFT,NVDA")
 
-if ticker:
-    data = yf.Ticker(ticker).history(period="1y")['Close']
-    st.write(f"최근 1년간 종가 데이터 (총 {len(data)}일)")
+tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
 
-    # 일별 수익률 계산
-    returns = data.pct_change().dropna()
+if tickers:
+    periods = 30  # 예측 기간(일)
+    for ticker in tickers:
+        st.header(f"{ticker} 주가 예측")
+        try:
+            data = yf.Ticker(ticker).history(period="2y")[['Close']].reset_index()
+            data.rename(columns={'Date':'ds', 'Close':'y'}, inplace=True)
 
-    # 몬테카를로 시뮬레이션 파라미터
-    last_price = data[-1]
-    num_simulations = 100
-    num_days = 30
+            # Prophet 모델 학습
+            m = Prophet(daily_seasonality=True)
+            m.fit(data)
 
-    # 시뮬레이션 결과 저장
-    simulation_df = pd.DataFrame()
+            # 미래 데이터프레임 생성 및 예측
+            future = m.make_future_dataframe(periods=periods)
+            forecast = m.predict(future)
 
-    np.random.seed(42)
-    for i in range(num_simulations):
-        prices = [last_price]
-        for _ in range(num_days):
-            shock = np.random.normal(loc=returns.mean(), scale=returns.std())
-            price = prices[-1] * (1 + shock)
-            prices.append(price)
-        simulation_df[i] = prices
+            # Plotly 그래프 생성
+            fig = plot_plotly(m, forecast)
+            st.plotly_chart(fig, use_container_width=True)
 
-    # 그래프 그리기
-    fig = go.Figure()
-
-    # 과거 실제 종가
-    fig.add_trace(go.Scatter(x=data.index, y=data.values,
-                             mode='lines', name='실제 종가'))
-
-    # 시뮬레이션 결과들 (미래 예측)
-    future_dates = pd.date_range(start=data.index[-1], periods=num_days + 1)
-    for i in range(num_simulations):
-        fig.add_trace(go.Scatter(x=future_dates, y=simulation_df[i],
-                                 mode='lines', line=dict(color='rgba(0,100,80,0.1)'),
-                                 showlegend=False))
-
-    fig.update_layout(title=f"{ticker} 미래 주가 몬테카를로 시뮬레이션 (30일 전망)",
-                      xaxis_title="날짜", yaxis_title="주가",
-                      height=500)
-
-    st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.error(f"{ticker} 데이터 처리 중 오류 발생: {e}")
