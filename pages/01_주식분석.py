@@ -1,54 +1,53 @@
 import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
-import pandas as pd
-from sklearn.linear_model import LinearRegression
 import numpy as np
+import pandas as pd
 
-st.title("📈 상위 종목 + 미래 주가 예측")
+st.title("🎲 몬테카를로 시뮬레이션으로 미래 주가 예측")
 
-# 분석 대상 종목 리스트
-tickers = ["AAPL", "MSFT", "NVDA", "GOOGL", "TSLA"]
+ticker = st.text_input("분석할 종목 티커 입력 (예: AAPL)", value="AAPL").upper()
 
-# 수익률 상위 1~3 종목 선별
-returns = {}
-price_data = {}
+if ticker:
+    data = yf.Ticker(ticker).history(period="1y")['Close']
+    st.write(f"최근 1년간 종가 데이터 (총 {len(data)}일)")
 
-for ticker in tickers:
-    data = yf.Ticker(ticker).history(period="30d")
-    if len(data) >= 2:
-        ret = (data['Close'][-1] - data['Close'][0]) / data['Close'][0]
-        returns[ticker] = round(ret * 100, 2)
-        price_data[ticker] = data
+    # 일별 수익률 계산
+    returns = data.pct_change().dropna()
 
-# 수익률 기준 상위 종목 3개
-top3 = sorted(returns.items(), key=lambda x: x[1], reverse=True)[:3]
+    # 몬테카를로 시뮬레이션 파라미터
+    last_price = data[-1]
+    num_simulations = 100
+    num_days = 30
 
-for ticker, pct in top3:
-    st.subheader(f"🚀 {ticker} (최근 30일 수익률: {pct}%)")
+    # 시뮬레이션 결과 저장
+    simulation_df = pd.DataFrame()
 
-    data = price_data[ticker].copy()
-    data.reset_index(inplace=True)
-    data['Day'] = (data['Date'] - data['Date'].min()).dt.days
-    X = data['Day'].values.reshape(-1, 1)
-    y = data['Close'].values
+    np.random.seed(42)
+    for i in range(num_simulations):
+        prices = [last_price]
+        for _ in range(num_days):
+            shock = np.random.normal(loc=returns.mean(), scale=returns.std())
+            price = prices[-1] * (1 + shock)
+            prices.append(price)
+        simulation_df[i] = prices
 
-    # 선형 회귀 모델로 예측
-    model = LinearRegression()
-    model.fit(X, y)
-
-    # 향후 30일 예측
-    last_day = X[-1][0]
-    future_days = np.array([last_day + i for i in range(1, 31)]).reshape(-1, 1)
-    future_prices = model.predict(future_days)
-
-    future_dates = pd.date_range(start=data['Date'].iloc[-1] + pd.Timedelta(days=1), periods=30)
-
-    # 그래프
+    # 그래프 그리기
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=data['Date'], y=data['Close'],
-                             mode='lines', name='실제 주가'))
-    fig.add_trace(go.Scatter(x=future_dates, y=future_prices,
-                             mode='lines', name='예측 주가', line=dict(dash='dot')))
-    fig.update_layout(height=400)
+
+    # 과거 실제 종가
+    fig.add_trace(go.Scatter(x=data.index, y=data.values,
+                             mode='lines', name='실제 종가'))
+
+    # 시뮬레이션 결과들 (미래 예측)
+    future_dates = pd.date_range(start=data.index[-1], periods=num_days + 1)
+    for i in range(num_simulations):
+        fig.add_trace(go.Scatter(x=future_dates, y=simulation_df[i],
+                                 mode='lines', line=dict(color='rgba(0,100,80,0.1)'),
+                                 showlegend=False))
+
+    fig.update_layout(title=f"{ticker} 미래 주가 몬테카를로 시뮬레이션 (30일 전망)",
+                      xaxis_title="날짜", yaxis_title="주가",
+                      height=500)
+
     st.plotly_chart(fig, use_container_width=True)
