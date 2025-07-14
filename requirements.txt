@@ -3,9 +3,4 @@ yfinance
 pandas
 prophet
 plotly
-tensorflow
-keras
-face_recognition
-dlib
-opencv-python-headless
-numpy
+
