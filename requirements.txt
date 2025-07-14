@@ -1,7 +1,2 @@
-streamlit
-tensorflow
-keras
-face_recognition
-dlib
-opencv-python-headless
-numpy
+plotly
+yfinance
